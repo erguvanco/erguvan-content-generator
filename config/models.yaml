@@ -1,0 +1,51 @@
+# Erguvan AI Content Generator - Model Configuration
+# Production-ready model settings with versioning and fallback
+
+models:
+  primary:
+    provider: "openai"
+    generation_model: "gpt-4o"
+    analysis_model: "gpt-4o-mini"
+    embedding_model: "text-embedding-3-large"
+    
+  fallback:
+    provider: "anthropic"
+    generation_model: "claude-3-5-sonnet-20241022"
+    analysis_model: "claude-3-5-haiku-20241022"
+    
+  # Model-specific settings
+  settings:
+    temperature: 0.7
+    max_tokens: 4000
+    top_p: 0.9
+    frequency_penalty: 0.0
+    presence_penalty: 0.0
+    
+  # Cost and rate limiting
+  cost_management:
+    max_cost_per_request: 0.50  # USD
+    rate_limit_requests_per_minute: 60
+    retry_attempts: 3
+    retry_delay: 1.0  # seconds
+    
+  # Quality monitoring
+  quality_monitoring:
+    track_metrics: true
+    alert_on_drift: true
+    drift_threshold: 0.1
+    metrics_retention_days: 30
+
+# API Configuration
+api:
+  openai:
+    base_url: "https://api.openai.com/v1"
+    timeout: 30
+    
+  anthropic:
+    base_url: "https://api.anthropic.com/v1"
+    timeout: 30
+
+# Environment variables required
+required_env_vars:
+  - OPENAI_API_KEY
+  # - ANTHROPIC_API_KEY  # optional for fallback
