@@ -1,129 +1,107 @@
-# Erguvan AI Content Generator - Brand Voice Guide
-# Comprehensive brand guidelines for consistent content generation
+# ============================================================
+#  Erguvan Brand Voice & Content Guide
+#  v2025-07-16  |  Maintainer: Brand & Comms Team
+#  License: CC BY-NC-SA 4.0
+# ============================================================
 
-brand_identity:
-  name: "Erguvan"
-  tagline: "Climate policy, carbon accounting, and ESG advisory services"
-  mission: "Empowering businesses to navigate climate regulations and achieve sustainability goals"
+metadata:
+  company: "Erguvan"
+  narrative: >
+    Erguvan is Türkiye’s first digital carbon-credit marketplace and ESG
+    data provider, integrating voluntary offset trading (ECM) with Azalt,
+    an AI-driven carbon & ESG management SaaS used by corporates and banks.
+  tagline: "Powering Climate Action with Finance & Data"
+  pillars: ["Credibility", "Clarity", "Actionability", "Empowerment"]
 
-voice_characteristics:
-  primary_tone: "authoritative yet approachable"
-  secondary_traits:
-    - "solutions-oriented"
-    - "technically accurate"
-    - "accessible to non-experts"
-    - "forward-thinking"
-    - "evidence-based"
-    
-  avoid:
-    - "overly technical jargon without explanation"
-    - "alarmist language"
-    - "vague generalizations"
-    - "passive voice (minimize)"
-    - "corporate buzzwords"
+voice:
+  personality:
+    primary: "authoritative-yet-approachable"
+    traits:
+      - transparent
+      - solutions-oriented
+      - evidence-backed
+      - collaborative
+  tonal_slider:                # choose one per deliverable
+    - expert_report            # white-papers, policy briefs
+    - pragmatic_advisory       # implementation guides, playbooks
+    - inspirational            # keynotes, thought-leadership
+  never_use:
+    - sensationalism
+    - un-sourced claims
+    - unexplained jargon
+    - empty buzzwords
+    - guilt-tripping rhetoric
 
-writing_style:
-  sentence_structure:
-    preferred_length: "15-25 words"
-    variety: "mix of short and medium sentences"
-    complexity: "clear and direct"
-    
-  paragraph_structure:
-    preferred_length: "3-5 sentences"
-    opening_style: "topic sentence with clear direction"
-    supporting_details: "2-3 supporting points with examples"
-    
-  formatting:
-    headers: "action-oriented and specific"
-    bullet_points: "parallel structure, action verbs"
-    emphasis: "bold for key terms, italics for definitions"
+readability_targets:
+  flesch_kincaid_grade_max: 12
+  sentence_length_avg: 15-22  # words
+  passive_voice_max_pct: 10
 
-content_guidelines:
-  structure:
-    opening:
-      - "Executive summary or key takeaway"
-      - "Context setting with relevant background"
-      - "Clear roadmap of what follows"
-      
-    body:
-      - "Logical flow from general to specific"
-      - "Evidence-based arguments with citations"
-      - "Practical implications and recommendations"
-      
-    closing:
-      - "Clear next steps or call to action"
-      - "Contact information for follow-up"
-      - "Additional resources if relevant"
+multilingual:
+  default_language: "EN"
+  supported_languages: ["EN", "TR"]
+  translation_rules:
+    - maintain metric units
+    - localise regulatory names (TR ETS → “Türkiye Emisyon Ticareti Sistemi”)
+    - keep product names in English (ECM, Azalt)
 
-  audience_adaptation:
-    executives:
-      focus: "strategic implications, ROI, risk mitigation"
-      language: "business-focused, quantified benefits"
-      length: "concise, executive summary style"
-      
-    sustainability_professionals:
-      focus: "technical accuracy, implementation details"
-      language: "industry terminology with explanations"
-      length: "comprehensive coverage of topic"
-      
-    procurement_managers:
-      focus: "supply chain impacts, vendor requirements"
-      language: "operational focus, practical guidance"
-      length: "actionable steps with timelines"
+audience_profiles:
+  - name: "C-Suite & Boards"
+    info_needs: ["risk-mitigation", "ROI", "regulatory exposure"]
+    deliverable_len: "≤ 800 words (exec summary); ≤ 10 slides"
+  - name: "Sustainability Leads / ESG Managers"
+    info_needs: ["methodology depth", "data fields", "implementation steps"]
+    deliverable_len: "1 500-3 000 words; detailed annexes"
+  - name: "Bank & Fintech Partners"
+    info_needs: ["product integration", "KPIs", "case studies"]
+    deliverable_len: "≤ 1 200 words; diagram-rich"
 
-domain_expertise:
-  core_areas:
-    - "Climate policy analysis"
-    - "Carbon accounting methodologies"
-    - "ESG reporting frameworks"
-    - "Carbon pricing mechanisms"
-    - "Net-zero transition planning"
-    - "Supply chain sustainability"
-    
-  regulatory_focus:
-    - "EU Climate regulations (CBAM, EU ETS)"
-    - "Turkish environmental compliance"
-    - "International standards (ISO 14064, GHG Protocol)"
-    - "TCFD reporting requirements"
-    - "CSRD implementation"
+structure_defaults:
+  document:
+    preamble: ["Key takeaway", "Why it matters now"]
+    body_sections: ["Context", "Implications", "Recommendations"]
+    close: ["Next steps", "Further reading", "Contact"]
+  blog_post:
+    preamble: ["TL;DR bullet list"]
+    length: 750-1 100 words
+    CTA: "Book a demo"
 
-language_preferences:
-  terminology:
-    preferred_terms:
-      - 'carbon footprint (not "carbon emissions")'
-      - 'net-zero (not "carbon neutral")'
-      - 'scope 1, 2, 3 emissions (clearly defined)'
-      - 'decarbonization (not "carbon reduction")'
-      - 'climate transition (not "green transition")'
-      
-    definitions_required:
-      - 'CBAM → Carbon Border Adjustment Mechanism'
-      - 'ETS → Emissions Trading System'
-      - 'TCFD → Task Force on Climate-related Financial Disclosures'
-      - 'SBTi → Science Based Targets initiative'
+style_conventions:
+  headings: "verb-led, ≤ 8 words"
+  bullets: "parallel, active voice"
+  emphasis:
+    bold: "key terms"
+    italics: "definitions, legislation"
+  numerals: "always use digits for 10+; spell out one-nine"
+  citations:
+    style: "Chicago author-date (hyper-linked)"
+    required_for: ["stats", "quotes", "legislation"]
 
-quality_standards:
-  readability:
-    flesch_score: ">= 50"
-    grade_level: "12th grade maximum"
-    
-  accuracy:
-    fact_checking: "required for all quantitative claims"
-    citations: "authoritative sources only"
-    currency: "regulations and data within 12 months"
-    
-  completeness:
-    coverage: "comprehensive within scope"
-    balance: "present multiple perspectives when relevant"
-    actionability: "clear next steps for readers"
+quality_gate:
+  plagiarism_max_pct: 10
+  brand_tone_match_min: 90     # vs. this guide using ML classifier
+  fact_currency_months: 12
+  human_review_required: true  # before external release
 
-citation_style:
-  format: "Chicago style with hyperlinks"
-  sources:
-    primary: "official regulatory documents"
-    secondary: "peer-reviewed research"
-    tertiary: "reputable industry publications"
-    
-  attribution:
-    author_line: "Erguvan Advisory AI"
-    disclaimer: "This content is generated by AI and should be reviewed by qualified professionals"
+domain_knowledge:
+  focus_topics:
+    - climate_policy (EU CBAM, TR ETS)
+    - carbon_accounting (GHG Protocol, ISO 14064)
+    - voluntary_carbon_markets (Verra, Gold Standard)
+    - ESG_reporting (CSRD, TCFD, SBTi)
+    - sustainable_finance (green loans, transition bonds)
+  regulatory_hotlist:
+    - EU CBAM definitive phase 2026
+    - Turkey Climate Law 2025
+    - CSRD phased entry 2025-2028
+
+do_dont_examples:
+  - do: "Provide quantified impact: *“The TR ETS will cover ~70 % of national emissions by 2025.”*"
+    dont: "Use vague clichés: *“Turkey is going big on green.”*"
+  - do: "Define acronyms on first use."
+    dont: "Assume reader knows CBAM, ETS, MRV."
+
+asset_output:
+  formats_allowed: [".md", ".docx", ".pptx"]
+  naming_pattern: "<YYYYMMDD>_<topic>_<audience>_Erguvan"
+  docx_template_path: "/templates/ErguvanReport.docx"

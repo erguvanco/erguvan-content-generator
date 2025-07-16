@@ -23,6 +23,9 @@ from src.prompts import prompt_manager
 from src.vector_index.vector_store import VectorStoreManager, SearchResult
 from src.analyzer.style_analyzer import StyleProfileManager
 
+# --- Configurable minimum relevance threshold for context chunk filtering ---
+MIN_RELEVANCE_THRESHOLD = 0.1  # Lowered from 0.3 for better recall
+
 
 @dataclass
 class ContentRequest:
@@ -30,9 +33,11 @@ class ContentRequest:
     topic: str
     audience: str
     desired_length: int
-    language: str = "en"
+    language: str = "EN"
     style_override: Optional[str] = None
     additional_context: Optional[str] = None
+    content_type: str = "document"
+    tone_style: str = "expert_report"
     
     def __post_init__(self):
         """Validate request parameters."""
@@ -40,8 +45,8 @@ class ContentRequest:
             raise ValueError("Desired length must be at least 100 words")
         if self.desired_length > 10000:
             raise ValueError("Desired length cannot exceed 10,000 words")
-        if self.language not in ["en", "tr"]:
-            raise ValueError("Language must be 'en' or 'tr'")
+        if self.language not in ["EN", "TR"]:
+            raise ValueError("Language must be 'EN' or 'TR'")
 
 
 @dataclass
@@ -205,11 +210,11 @@ class RAGPipeline:
             language=request.language,
             max_chunks=8  # Get more chunks for better context
         )
+        self.logger.info(f"[DEBUG] RAGPipeline.retrieve_context: got {len(context_chunks)} chunks: {[c.chunk_id for c in context_chunks]}")
         
         # Filter and rank chunks
         filtered_chunks = self._filter_and_rank_chunks(context_chunks, request)
-        
-        self.logger.info(f"Retrieved {len(filtered_chunks)} context chunks")
+        self.logger.info(f"[DEBUG] RAGPipeline.retrieve_context: returning {len(filtered_chunks)} filtered chunks: {[c.chunk_id for c in filtered_chunks]}")
         
         return filtered_chunks
     
@@ -219,9 +224,8 @@ class RAGPipeline:
         if not chunks:
             return []
         
-        # Filter by minimum relevance score
-        min_relevance = 0.3
-        filtered = [chunk for chunk in chunks if chunk.relevance_score >= min_relevance]
+        # DEBUG: Return all chunks, sorted by score, for debugging
+        filtered = chunks  # Return all chunks for debugging
         
         # Re-rank based on multiple factors
         scored_chunks = []
@@ -229,10 +233,10 @@ class RAGPipeline:
             score = self._calculate_chunk_score(chunk, request)
             scored_chunks.append((chunk, score))
         
-        # Sort by score and return top 5
+        # Sort by score and return all (no slicing)
         scored_chunks.sort(key=lambda x: x[1], reverse=True)
         
-        return [chunk for chunk, score in scored_chunks[:5]]
+        return [chunk for chunk, score in scored_chunks]  # Return all
     
     def _calculate_chunk_score(self, chunk: SearchResult, 
                               request: ContentRequest) -> float:
@@ -489,7 +493,8 @@ class ContentGenerator:
         self.structurer = ContentStructurer()
         self.logger = logging.getLogger(__name__)
     
-    async def generate_content(self, request: ContentRequest) -> GeneratedContent:
+    async def generate_content(self, request: ContentRequest, 
+                             session_vector_store: Optional[VectorStoreManager] = None) -> GeneratedContent:
         """Generate content based on request."""
         start_time = datetime.now()
         
@@ -497,7 +502,13 @@ class ContentGenerator:
         
         try:
             # Step 1: Retrieve context
-            context_chunks = await self.rag_pipeline.retrieve_context(request)
+            # Use session vector store if provided, otherwise use default
+            if session_vector_store:
+                rag_pipeline = RAGPipeline(session_vector_store)
+                context_chunks = await rag_pipeline.retrieve_context(request)
+                self.logger.info(f"Using session-specific samples for context retrieval")
+            else:
+                context_chunks = await self.rag_pipeline.retrieve_context(request)
             
             # Step 2: Extract style patterns
             style_patterns = await self.style_extractor.extract_patterns(context_chunks, request)

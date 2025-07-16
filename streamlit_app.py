@@ -204,6 +204,23 @@ def main():
         st.error("Environment validation failed:")
         for issue in env_issues:
             st.error(f"• {issue}")
+    
+    # Register cleanup handler
+    if 'cleanup_registered' not in st.session_state:
+        import atexit
+        
+        def cleanup_sessions():
+            """Cleanup sessions on app shutdown."""
+            if hasattr(st.session_state, 'session_manager') and st.session_state.session_manager:
+                try:
+                    asyncio.run(st.session_state.session_manager.shutdown())
+                except Exception as e:
+                    logger.error(f"Error during session cleanup: {e}")
+        
+        atexit.register(cleanup_sessions)
+        st.session_state.cleanup_registered = True
+    
+    if env_issues:
         st.info("Please resolve these issues before continuing.")
         return
     
@@ -257,9 +274,180 @@ def main():
 
 
 def content_generation_page():
-    """Content generation interface."""
-    st.header("📝 Content Generation")
+    """Content generation interface with dynamic sample upload."""
+    st.header("📝 Content Generation with Dynamic Samples")
     
+    # Initialize session state
+    if 'session_manager' not in st.session_state:
+        try:
+            from src.session.session_manager import SessionManager
+            # Use the already initialized components
+            if st.session_state.vector_store_manager and st.session_state.style_manager:
+                st.session_state.session_manager = SessionManager(
+                    st.session_state.vector_store_manager, 
+                    st.session_state.style_manager
+                )
+            else:
+                st.error("Session manager requires vector store and style manager to be initialized first.")
+                return
+        except Exception as e:
+            st.error(f"Failed to initialize session manager: {e}")
+            return
+    
+    if 'current_session' not in st.session_state:
+        st.session_state.current_session = None
+    
+    # Step 1: Upload samples for this specific content generation
+    st.subheader("1. Upload Topic-Specific Samples")
+    st.info("💡 Upload the best examples related to your topic for higher quality content generation.")
+    
+    uploaded_files = st.file_uploader(
+        "Upload sample documents (PDF, DOCX, PPTX, MD, TXT)",
+        accept_multiple_files=True,
+        type=['pdf', 'docx', 'pptx', 'md', 'txt'],
+        help="Upload documents that contain excellent examples of content similar to what you want to generate"
+    )
+    
+    # Process uploaded files
+    if uploaded_files and st.session_state.current_session is None:
+        # Create progress tracking for sample processing
+        sample_progress_container = st.container()
+        sample_status_container = st.container()
+        
+        with sample_progress_container:
+            st.subheader("📁 Sample Processing Progress")
+            sample_progress_bar = st.progress(0)
+            
+        with sample_status_container:
+            sample_status_placeholder = st.empty()
+            
+        try:
+            # Step 1: Create session
+            with sample_status_placeholder.container():
+                st.info("🆕 **Step 1/4:** Creating new session...")
+            sample_progress_bar.progress(1/4)
+            
+            session = st.session_state.session_manager.create_session()
+            st.session_state.current_session = session
+            st.success("✅ Session created successfully")
+            
+            # Step 2: Upload files
+            with sample_status_placeholder.container():
+                st.info(f"📤 **Step 2/4:** Uploading {len(uploaded_files)} files...")
+            sample_progress_bar.progress(2/4)
+            
+            for i, uploaded_file in enumerate(uploaded_files):
+                file_content = uploaded_file.read()
+                asyncio.run(
+                    st.session_state.session_manager.add_sample_to_session(
+                        session.session_id, 
+                        file_content, 
+                        uploaded_file.name
+                    )
+                )
+                # Update progress during upload
+                partial_progress = 2/4 + (i + 1) / len(uploaded_files) * 0.25
+                sample_progress_bar.progress(partial_progress)
+                
+            st.success(f"✅ Successfully uploaded {len(uploaded_files)} files")
+            
+            # Step 3: Process samples
+            with sample_status_placeholder.container():
+                st.info("🔄 **Step 3/4:** Processing and analyzing samples...")
+            sample_progress_bar.progress(3/4)
+            
+            processing_stats = asyncio.run(
+                st.session_state.session_manager.process_session_samples(session.session_id)
+            )
+            
+            # Step 4: Complete
+            with sample_status_placeholder.container():
+                st.info("✅ **Step 4/4:** Processing complete!")
+            sample_progress_bar.progress(1.0)
+            
+            # Display detailed processing results
+            st.success(f"✅ Processed {processing_stats['processed_samples']}/{processing_stats['total_samples']} samples")
+            st.info(f"📊 Created {processing_stats['total_chunks']} content chunks in {processing_stats['processing_time']:.2f}s")
+            
+            if processing_stats['errors']:
+                st.warning("⚠️ Some files had processing errors:")
+                for error in processing_stats['errors']:
+                    st.write(f"- {error}")
+            else:
+                st.success("🎉 All samples processed successfully!")
+                
+        except Exception as e:
+            with sample_status_placeholder.container():
+                st.error(f"❌ Sample processing failed: {e}")
+                st.info("💡 Try uploading different file formats or check file sizes")
+                
+                # Show detailed error info in expander
+                with st.expander("🔍 Detailed Error Information"):
+                    import traceback
+                    st.code(traceback.format_exc())
+                    
+                    # Show file info
+                    if uploaded_files:
+                        st.write("**Files attempted to upload:**")
+                        for f in uploaded_files:
+                            st.write(f"- {f.name} ({f.size} bytes, type: {f.type})")
+                            
+            st.session_state.current_session = None
+    
+    # Show current session info
+    if st.session_state.current_session:
+        session_info = st.session_state.session_manager.get_session_info(st.session_state.current_session.session_id)
+        st.success(f"📁 Session active with {len(session_info['samples'])} samples")
+        
+        # Option to clear session and start over
+        if st.button("🔄 Clear Session & Upload New Samples"):
+            try:
+                asyncio.run(st.session_state.session_manager.cleanup_session(st.session_state.current_session.session_id))
+                st.session_state.current_session = None
+                st.success("Session cleared successfully!")
+                st.experimental_rerun()
+            except Exception as e:
+                st.error(f"Error clearing session: {e}")
+
+        # --- DEBUG PANEL: Show session chunks ---
+        with st.expander("🛠️ Debug: Show session chunks in vector store"):
+            if st.button("Show session chunks", key="show_session_chunks_btn"):
+                try:
+                    chunks = st.session_state.session_manager.debug_list_session_chunks(
+                        st.session_state.current_session.session_id
+                    )
+                    if chunks:
+                        st.write(f"Found {len(chunks)} chunks in session vector store:")
+                        for i, chunk in enumerate(chunks):
+                            st.markdown(f"**Chunk {i+1}:**")
+                            st.code(chunk['content'])
+                            st.json(chunk['metadata'])
+                    else:
+                        st.warning("No chunks found in session vector store.")
+                except Exception as e:
+                    st.error(f"Error retrieving session chunks: {e}")
+    
+    # Show message if no samples uploaded yet
+    elif not st.session_state.current_session:
+        st.info("👆 Please upload sample documents above to begin content generation.")
+        st.write("**Why upload samples?**")
+        st.write("- Higher quality content generation")
+        st.write("- Topic-specific examples and styles")
+        st.write("- Better understanding of your content needs")
+        st.write("- Fresh, current examples for each generation")
+    
+    # Step 2: Content generation form (always show)
+    st.subheader("2. Generate Content")
+    
+    # Show different message based on sample upload status
+    if st.session_state.current_session and st.session_state.current_session.is_processed:
+        st.success("✅ Using your uploaded samples for enhanced content generation")
+    elif st.session_state.current_session:
+        st.warning("⚠️ Samples uploaded but not processed yet. Content will use default knowledge base.")
+    else:
+        st.info("ℹ️ No samples uploaded. Content will use default knowledge base.")
+    
+    # Always show the form
     # Content generation form
     with st.form("content_generation_form"):
         col1, col2 = st.columns(2)
@@ -273,23 +461,52 @@ def content_generation_page():
             
             audience = st.selectbox(
                 "Target Audience",
-                ["CFO", "Sustainability Manager", "Procurement Manager", "Board of Directors", "General Manager"],
+                ["C-Suite & Boards", "Sustainability Leads / ESG Managers", "Bank & Fintech Partners"],
                 help="Who is the primary audience for this content?"
             )
             
+            content_type = st.selectbox(
+                "Content Type",
+                ["document", "blog_post"],
+                help="Type of content to generate"
+            )
+            
+            tone_style = st.selectbox(
+                "Tone Style",
+                ["expert_report", "pragmatic_advisory", "inspirational"],
+                help="Tone style for the content",
+                format_func=lambda x: {
+                    "expert_report": "Expert Report (white-papers, policy briefs)",
+                    "pragmatic_advisory": "Pragmatic Advisory (implementation guides, playbooks)",
+                    "inspirational": "Inspirational (keynotes, thought-leadership)"
+                }[x]
+            )
+            
+            # Dynamic length recommendations based on audience and content type
+            if content_type == "blog_post":
+                length_min, length_max, default_length = 750, 1100, 900
+            elif audience == "C-Suite & Boards":
+                length_min, length_max, default_length = 100, 800, 600
+            elif audience == "Sustainability Leads / ESG Managers":
+                length_min, length_max, default_length = 1500, 3000, 2000
+            elif audience == "Bank & Fintech Partners":
+                length_min, length_max, default_length = 100, 1200, 800
+            else:
+                length_min, length_max, default_length = 100, 5000, 1200
+            
             desired_length = st.slider(
-                "Desired Length (words)",
+                f"Desired Length (words) - Recommended: {length_min}-{length_max}",
                 min_value=100,
                 max_value=5000,
-                value=1200,
+                value=default_length,
                 step=100
             )
         
         with col2:
             language = st.selectbox(
                 "Language",
-                ["en", "tr"],
-                format_func=lambda x: "English" if x == "en" else "Turkish"
+                ["EN", "TR"],
+                format_func=lambda x: "English" if x == "EN" else "Turkish"
             )
             
             style_override = st.text_input(
@@ -298,8 +515,8 @@ def content_generation_page():
                 help="Optional style instructions"
             )
             
-            generate_button = st.form_submit_button("🚀 Generate Content", type="primary")
-    
+        generate_button = st.form_submit_button("🚀 Generate Content", type="primary")
+        
     # Generate content
     if generate_button and topic and audience:
         # Check if generator is available
@@ -307,23 +524,65 @@ def content_generation_page():
             st.error("Content generator is not available. Please check system initialization.")
             return
         
-        with st.spinner("Generating content..."):
-            try:
-                # Create content request
-                content_request = ContentRequest(
-                    topic=topic,
-                    audience=audience,
-                    desired_length=desired_length,
-                    language=language,
-                    style_override=style_override
+        # Create progress tracking containers
+        progress_container = st.container()
+        status_container = st.container()
+        
+        with progress_container:
+            st.subheader("🚀 Content Generation Progress")
+            progress_bar = st.progress(0)
+            
+        with status_container:
+            status_placeholder = st.empty()
+            
+        try:
+            # Step 1: Initialize request
+            with status_placeholder.container():
+                st.info("🔧 **Step 1/8:** Creating content request...")
+            progress_bar.progress(1/8)
+            
+            content_request = ContentRequest(
+                topic=topic,
+                audience=audience,
+                desired_length=desired_length,
+                language=language,
+                style_override=style_override,
+                content_type=content_type,
+                tone_style=tone_style
                 )
-                
-                # Generate content
-                generated_content = run_async_in_thread(
-                    st.session_state.generator.generate_content(content_request)
+                    
+            # Step 2: Get session vector store
+            with status_placeholder.container():
+                st.info("🗂️ **Step 2/8:** Checking for uploaded samples...")
+            progress_bar.progress(2/8)
+                    
+            session_vector_store = None
+            if st.session_state.current_session:
+                session_vector_store = run_async_in_thread(
+                    st.session_state.session_manager.get_session_vector_store(
+                        st.session_state.current_session.session_id
+                    )
                 )
-                
-                # Get context chunks for evaluation
+                st.success("✅ Using your uploaded samples for enhanced context")
+            else:
+                st.info("ℹ️ Using default knowledge base (no samples uploaded)")
+                    
+            # Step 3: Context retrieval
+            with status_placeholder.container():
+                st.info("🔍 **Step 3/8:** Retrieving relevant context...")
+            progress_bar.progress(3/8)
+                    
+            if session_vector_store:
+                context_chunks = run_async_in_thread(
+                    session_vector_store.search_for_generation(
+                        topic=topic,
+                        audience=audience,
+                        language=language,
+                        max_chunks=5
+                    )
+                )
+                st.success(f"✅ Found {len(context_chunks)} relevant context chunks from your samples")
+            else:
                 context_chunks = run_async_in_thread(
                     st.session_state.vector_store_manager.search_for_generation(
                         topic=topic,
@@ -332,31 +591,85 @@ def content_generation_page():
                         max_chunks=5
                     )
                 )
-                
-                # Evaluate content
-                try:
-                    evaluation = run_async_in_thread(
-                        st.session_state.evaluator.evaluate_content(generated_content, context_chunks)
-                    )
+                if context_chunks:
+                    st.success(f"✅ Found {len(context_chunks)} relevant context chunks from knowledge base")
+                else:
+                    st.warning("⚠️ No relevant context found - generating with general knowledge")
+
+            # --- DEBUG: Show context chunk content and scores ---
+            with st.expander("🛠️ Debug: Show retrieved context chunks and scores"):
+                if context_chunks:
+                    for i, chunk in enumerate(context_chunks):
+                        st.markdown(f"**Chunk {i+1}:** (Relevance score: {chunk.relevance_score:.3f})")
+                        st.code(chunk.content)
+                        st.json(chunk.metadata)
+                else:
+                    st.info("No context chunks retrieved.")
                     
-                    # Display results with evaluation
-                    display_generation_results(generated_content, evaluation)
+            # Step 4: Content generation
+            with status_placeholder.container():
+                st.info("🤖 **Step 4/8:** Generating content with AI...")
+            progress_bar.progress(4/8)
                     
-                except Exception as eval_error:
-                    st.warning(f"Content generated successfully, but evaluation failed: {eval_error}")
-                    st.success("Content generated successfully!")
+            generated_content = run_async_in_thread(
+                st.session_state.generator.generate_content(
+                    content_request, 
+                    session_vector_store=session_vector_store
+                )
+            )
                     
-                    # Display content without evaluation
-                    display_content_only(generated_content)
+            with status_placeholder.container():
+                st.success(f"✅ Content generated! ({generated_content.word_count} words, {generated_content.generation_time_seconds:.2f}s)")
+                st.info(f"📊 Model used: {generated_content.model_used}")
+                if generated_content.context_chunks_used > 0:
+                    st.info(f"📚 Context chunks used: {generated_content.context_chunks_used}")
+                if generated_content.style_patterns:
+                    st.info(f"🎨 Style patterns applied: {len(generated_content.style_patterns)}")
                     
-                    # Create a dummy evaluation for download
-                    evaluation = None
-                
-                # Always provide download options regardless of evaluation results
-                display_download_options(generated_content, evaluation)
-                
-            except Exception as e:
-                st.error(f"Content generation failed: {e}")
+            # Step 5: Content evaluation
+            with status_placeholder.container():
+                st.info("📊 **Step 5/8:** Evaluating content quality...")
+            progress_bar.progress(5/8)
+                    
+            evaluation = None
+            try:
+                evaluation = run_async_in_thread(
+                    st.session_state.evaluator.evaluate_content(generated_content, context_chunks)
+                )
+                st.success("✅ Content evaluation completed")
+                        
+            except Exception as eval_error:
+                st.warning(f"⚠️ Content evaluation failed: {eval_error}")
+                st.info("🔄 Falling back to basic content display")
+                    
+            # Step 6: Display results
+            with status_placeholder.container():
+                st.info("📝 **Step 6/8:** Formatting results...")
+            progress_bar.progress(6/8)
+                    
+            if evaluation:
+                display_generation_results(generated_content, evaluation)
+            else:
+                display_content_only(generated_content)
+                    
+            # Step 7: Prepare downloads
+            with status_placeholder.container():
+                st.info("📄 **Step 7/8:** Preparing download options...")
+            progress_bar.progress(7/8)
+                    
+            display_download_options(generated_content, evaluation)
+                    
+            # Step 8: Complete
+            with status_placeholder.container():
+                st.info("✅ **Step 8/8:** Generation complete!")
+            progress_bar.progress(1.0)
+                    
+            st.success("🎉 Content generation completed successfully!")
+                    
+        except Exception as e:
+            with status_placeholder.container():
+                st.error(f"❌ Content generation failed: {e}")
+                st.info("💡 Try adjusting your parameters or uploading more relevant samples")
 
 
 def display_content_only(generated_content):
@@ -570,7 +883,7 @@ def document_management_page():
                 else:
                     loader = DocumentLoader()
                     loader_type = "DocumentLoader (standard)"
-                
+                    
                 st.info(f"Using {loader_type} for document processing")
                 processed_docs = []
                 total_files = len(uploaded_files)
@@ -789,7 +1102,13 @@ def settings_page():
     st.header("⚙️ Settings")
     
     # Configuration display
-    st.subheader("Current Configuration")
+    col1, col2 = st.columns([3, 1])
+    with col1:
+        st.subheader("Current Configuration")
+    with col2:
+        if st.button("🔄 Reload Config"):
+            config_manager.reload_config()
+            st.success("Configuration reloaded!")
     
     try:
         model_config = config_manager.get_model_config()
@@ -802,13 +1121,18 @@ def settings_page():
             st.write(f"Provider: {model_config.provider}")
             st.write(f"Generation Model: {model_config.generation_model}")
             st.write(f"Analysis Model: {model_config.analysis_model}")
+            st.write(f"Embedding Model: {model_config.embedding_model}")
+            st.write(f"Temperature: {model_config.temperature}")
+            st.write(f"Max Tokens: {model_config.max_tokens}")
             st.write(f"Max Cost per Request: ${model_config.max_cost_per_request}")
         
         with col2:
             st.markdown("**Brand Configuration:**")
             st.write(f"Primary Tone: {brand_config.primary_tone}")
-            st.write(f"Flesch Score Minimum: {brand_config.flesch_score_min}")
+            st.write(f"Flesch-Kincaid Grade Max: {brand_config.flesch_score_min}")
+            st.write(f"Sentence Length: {brand_config.preferred_sentence_length}")
             st.write(f"Secondary Traits: {', '.join(brand_config.secondary_traits[:3])}...")
+            st.write(f"Avoid: {', '.join(brand_config.avoid[:2])}...")
         
     except Exception as e:
         st.error(f"Failed to load configuration: {e}")

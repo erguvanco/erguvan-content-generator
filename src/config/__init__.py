@@ -84,11 +84,11 @@ class ConfigManager:
         config = self.load_brand_config()
         
         return BrandConfig(
-            primary_tone=config["voice_characteristics"]["primary_tone"],
-            secondary_traits=config["voice_characteristics"]["secondary_traits"],
-            avoid=config["voice_characteristics"]["avoid"],
-            preferred_sentence_length=config["writing_style"]["sentence_structure"]["preferred_length"],
-            flesch_score_min=int(config["quality_standards"]["readability"]["flesch_score"].replace(">= ", ""))
+            primary_tone=config["voice"]["personality"]["primary"],
+            secondary_traits=config["voice"]["personality"]["traits"],
+            avoid=config["voice"]["never_use"],
+            preferred_sentence_length=config["readability_targets"]["sentence_length_avg"],
+            flesch_score_min=config["readability_targets"]["flesch_kincaid_grade_max"]
         )
     
     def validate_environment(self) -> bool:
@@ -105,6 +105,11 @@ class ConfigManager:
             raise EnvironmentError(f"Missing required environment variables: {missing}")
         
         return True
+    
+    def reload_config(self):
+        """Reload configuration from files."""
+        self._models_config = None
+        self._brand_config = None
 
 
 # Global configuration instance

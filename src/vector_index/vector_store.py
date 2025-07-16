@@ -64,14 +64,14 @@ class EmbeddingProvider:
             self.client = SentenceTransformer('all-MiniLM-L6-v2')
             self.embedding_model = "sentence-transformers"
     
-    async def generate_embeddings(self, texts: List[str]) -> List[List[float]]:
+    def generate_embeddings(self, texts: List[str]) -> List[List[float]]:
         """Generate embeddings for a list of texts."""
         if self.config.provider == "openai":
-            return await self._generate_openai_embeddings(texts)
+            return self._generate_openai_embeddings(texts)
         else:
-            return await self._generate_sentence_transformer_embeddings(texts)
+            return self._generate_sentence_transformer_embeddings(texts)
     
-    async def _generate_openai_embeddings(self, texts: List[str]) -> List[List[float]]:
+    def _generate_openai_embeddings(self, texts: List[str]) -> List[List[float]]:
         """Generate embeddings using OpenAI API."""
         try:
             response = self.client.embeddings.create(
@@ -82,17 +82,14 @@ class EmbeddingProvider:
         except Exception as e:
             self.logger.error(f"OpenAI embedding generation failed: {e}")
             # Fallback to sentence transformers
-            return await self._generate_sentence_transformer_embeddings(texts)
+            return self._generate_sentence_transformer_embeddings(texts)
     
-    async def _generate_sentence_transformer_embeddings(self, texts: List[str]) -> List[List[float]]:
+    def _generate_sentence_transformer_embeddings(self, texts: List[str]) -> List[List[float]]:
         """Generate embeddings using sentence transformers."""
         try:
-            # Run in thread pool to avoid blocking
-            loop = asyncio.get_event_loop()
-            embeddings = await loop.run_in_executor(
-                None, lambda: self.client.encode(texts).tolist()
-            )
-            return embeddings
+            # Generate embeddings directly
+            embeddings = self.client.encode(texts)
+            return embeddings.tolist()
         except Exception as e:
             self.logger.error(f"Sentence transformer embedding generation failed: {e}")
             # Return dummy embeddings as last resort
@@ -102,9 +99,11 @@ class EmbeddingProvider:
 class ChromaVectorStore:
     """ChromaDB-based vector store with optimized indexing."""
     
-    def __init__(self, persist_directory: str = "data/chroma_db"):
+    def __init__(self, persist_directory: str = "data/chroma_db", 
+                 collection_prefix: str = "default"):
         self.logger = logging.getLogger(__name__)
         self.persist_directory = persist_directory
+        self.collection_prefix = collection_prefix
         self.embedding_provider = EmbeddingProvider()
         
         # Create directory if it doesn't exist
@@ -128,12 +127,13 @@ class ChromaVectorStore:
     
     def _get_or_create_collection(self, name: str):
         """Get or create a collection with embedding function."""
+        collection_name = f"{self.collection_prefix}_{name}"
         try:
-            return self.client.get_collection(name)
+            return self.client.get_collection(collection_name)
         except Exception:
             # Create new collection
             return self.client.create_collection(
-                name=name,
+                name=collection_name,
                 metadata={"hnsw:space": "cosine"}
             )
     
@@ -144,7 +144,7 @@ class ChromaVectorStore:
         
         try:
             # Generate document-level embedding
-            doc_embedding = await self.embedding_provider.generate_embeddings([content])
+            doc_embedding = self.embedding_provider.generate_embeddings([content])
             
             # Add document to documents collection
             doc_id = metadata.document_id
@@ -183,7 +183,7 @@ class ChromaVectorStore:
         
         # Prepare chunk data
         chunk_texts = [chunk.content for chunk in chunks]
-        chunk_embeddings = await self.embedding_provider.generate_embeddings(chunk_texts)
+        chunk_embeddings = self.embedding_provider.generate_embeddings(chunk_texts)
         
         chunk_ids = []
         chunk_metadatas = []
@@ -220,7 +220,7 @@ class ChromaVectorStore:
         style_text = self._style_profile_to_text(style_profile)
         
         # Generate embedding
-        embedding = await self.embedding_provider.generate_embeddings([style_text])
+        embedding = self.embedding_provider.generate_embeddings([style_text])
         
         # Add to styles collection
         style_id = f"style_{style_profile.document_id}"
@@ -265,7 +265,7 @@ class ChromaVectorStore:
         
         try:
             # Generate query embedding
-            query_embedding = await self.embedding_provider.generate_embeddings([query])
+            query_embedding = self.embedding_provider.generate_embeddings([query])
             
             # Build ChromaDB filter
             where_clause = {}
@@ -274,36 +274,33 @@ class ChromaVectorStore:
                     if key in ["language", "file_name", "document_id"]:
                         where_clause[key] = value
             
-            # Search in chunks collection
+            # Query ChromaDB
             results = self.chunks_collection.query(
                 query_embeddings=query_embedding,
                 n_results=limit,
-                where=where_clause if where_clause else None
+                where=where_clause,
+                include=["metadatas", "documents", "distances"]
             )
+            self.logger.info(f"[DEBUG] Raw ChromaDB query results: {results}")
             
-            # Convert to SearchResult objects
+            # Convert ChromaDB results to SearchResult objects
             search_results = []
-            if results['ids'] and results['ids'][0]:
-                for i in range(len(results['ids'][0])):
-                    result = SearchResult(
-                        content=results['documents'][0][i],
-                        metadata=results['metadatas'][0][i],
-                        relevance_score=1.0 - results['distances'][0][i],  # Convert distance to similarity
-                        chunk_id=results['ids'][0][i],
-                        document_id=results['metadatas'][0][i]['document_id'],
-                        heading=results['metadatas'][0][i].get('heading'),
-                        page_number=results['metadatas'][0][i].get('page_number')
-                    )
-                    search_results.append(result)
-            
-            # Log search performance
-            search_time = (datetime.now() - start_time).total_seconds() * 1000
-            self.logger.info(f"Search completed in {search_time:.2f}ms for query: '{query[:50]}...'")
-            
+            ids = results["ids"][0]
+            distances = results["distances"][0]
+            metadatas = results["metadatas"][0]
+            documents = results["documents"][0]
+            for i in range(len(ids)):
+                self.logger.info(f"[DEBUG] Converting result {i}: id={ids[i]}, distance={distances[i]}, doc_len={len(documents[i]) if documents[i] else 0}, meta={metadatas[i]}")
+                search_results.append(SearchResult(
+                    chunk_id=ids[i],
+                    relevance_score=1.0 - distances[i],  # or whatever your scoring logic is
+                    content=documents[i],
+                    metadata=metadatas[i]
+                ))
+            self.logger.info(f"[DEBUG] Built {len(search_results)} SearchResult objects: {[r.chunk_id for r in search_results]}")
             return search_results
-            
         except Exception as e:
-            self.logger.error(f"Search failed for query '{query}': {e}")
+            self.logger.error(f"Error during chunk search: {e}")
             return []
     
     async def search_similar_styles(self, reference_style: StyleProfile, 
@@ -313,7 +310,7 @@ class ChromaVectorStore:
         reference_text = self._style_profile_to_text(reference_style)
         
         # Generate embedding
-        reference_embedding = await self.embedding_provider.generate_embeddings([reference_text])
+        reference_embedding = self.embedding_provider.generate_embeddings([reference_text])
         
         # Search in styles collection
         results = self.styles_collection.query(
@@ -469,13 +466,40 @@ class ChromaVectorStore:
         except Exception as e:
             self.logger.error(f"Failed to reset collections: {e}")
             return False
+    
+    async def search_for_generation(self, topic: str, audience: str, 
+                                  language: str = "en", 
+                                  max_chunks: int = 5) -> List[SearchResult]:
+        """Search for relevant content chunks for content generation."""
+        # Build comprehensive query
+        query = f"{topic} {audience} sustainability climate carbon ESG"
+        
+        # Search for contextual chunks
+        results = await self.get_contextual_chunks(
+            query=query,
+            topic=topic,
+            max_chunks=max_chunks
+        )
+        
+        # Filter by language if specified
+        if language != "en":
+            results = [r for r in results if r.metadata.get('language') == language]
+        
+        self.logger.info(f"Found {len(results)} relevant chunks for topic: {topic}")
+        
+        return results
 
 
 class VectorStoreManager:
     """High-level manager for vector store operations."""
     
-    def __init__(self, persist_directory: str = "data/chroma_db"):
-        self.vector_store = ChromaVectorStore(persist_directory)
+    def __init__(self, persist_directory: str = "data/chroma_db", 
+                 collection_name: str = "default",
+                 collection_prefix: Optional[str] = None):
+        if collection_prefix is None:
+            collection_prefix = collection_name
+        self.vector_store = ChromaVectorStore(persist_directory, collection_prefix=collection_prefix)
+        self.collection_name = collection_name
         self.logger = logging.getLogger(__name__)
     
     async def index_documents(self, documents: List[Tuple[str, DocumentMetadata]], 
@@ -572,3 +596,103 @@ class VectorStoreManager:
                 "error": str(e),
                 "last_updated": datetime.now().isoformat()
             }
+    
+    def create_temporary_collection(self, collection_id: str) -> bool:
+        """Create a temporary collection for session-based samples."""
+        try:
+            # Create new ChromaVectorStore instance for temporary collection
+            temp_vector_store = ChromaVectorStore(
+                persist_directory=self.vector_store.persist_directory,
+                collection_prefix=f"temp_{collection_id}"
+            )
+            
+            # Initialize the temporary collection
+            # temp_vector_store.initialize()
+            
+            self.logger.info(f"Created temporary collection: {collection_id}")
+            return True
+            
+        except Exception as e:
+            self.logger.error(f"Failed to create temporary collection {collection_id}: {e}")
+            return False
+    
+    async def add_document_to_collection(self, document, collection_id: str) -> str:
+        """Add a document to a specific collection."""
+        try:
+            # Create or get temporary vector store for collection
+            temp_vector_store = ChromaVectorStore(
+                persist_directory=self.vector_store.persist_directory,
+                collection_prefix=f"temp_{collection_id}"
+            )
+            
+            # Add document to temporary collection
+            doc_id = await temp_vector_store.add_document(
+                document.content, 
+                document.metadata, 
+                document.chunks
+            )
+            
+            self.logger.info(f"Added document to collection {collection_id}: {doc_id}")
+            return doc_id
+            
+        except Exception as e:
+            self.logger.error(f"Failed to add document to collection {collection_id}: {e}")
+            raise
+    
+    def get_session_vector_store(self, collection_id: str) -> 'VectorStoreManager':
+        """Get a vector store manager instance for a specific session collection."""
+        temp_vector_store = ChromaVectorStore(
+            persist_directory=self.vector_store.persist_directory,
+            collection_prefix=f"temp_{collection_id}"
+        )
+        
+        # Create a new VectorStoreManager with the temp vector store
+        session_manager = VectorStoreManager.__new__(VectorStoreManager)
+        session_manager.vector_store = temp_vector_store
+        session_manager.collection_name = collection_id
+        session_manager.logger = self.logger
+        
+        return session_manager
+    
+    async def search_for_generation(self, topic: str, audience: str, 
+                                  language: str = "en", 
+                                  max_chunks: int = 5) -> List[SearchResult]:
+        """Search for relevant content chunks for content generation."""
+        return await self.vector_store.search_for_generation(
+            topic=topic,
+            audience=audience,
+            language=language,
+            max_chunks=max_chunks
+        )
+    
+    async def delete_collection(self, collection_id: str) -> bool:
+        """Delete a temporary collection."""
+        try:
+            # Get temporary vector store
+            temp_vector_store = ChromaVectorStore(
+                persist_directory=self.vector_store.persist_directory,
+                collection_prefix=f"temp_{collection_id}"
+            )
+            
+            # Delete the collection
+            client = chromadb.PersistentClient(path=self.vector_store.persist_directory)
+            
+            # Delete all collections with this prefix
+            collections_to_delete = [
+                f"temp_{collection_id}_documents",
+                f"temp_{collection_id}_chunks", 
+                f"temp_{collection_id}_styles"
+            ]
+            
+            for collection_name in collections_to_delete:
+                try:
+                    client.delete_collection(name=collection_name)
+                    self.logger.info(f"Deleted collection: {collection_name}")
+                except Exception as e:
+                    self.logger.warning(f"Collection {collection_name} not found or already deleted: {e}")
+            
+            return True
+            
+        except Exception as e:
+            self.logger.error(f"Failed to delete collection {collection_id}: {e}")
+            return False
